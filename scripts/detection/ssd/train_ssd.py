@@ -62,6 +62,8 @@ def parse_args():
                              'training time if validation is slow.')
     parser.add_argument('--seed', type=int, default=233,
                         help='Random seed to be fixed.')
+    parser.add_argument('--syncbn', action='store_true', default= False,
+                        help='using Synchronized Cross-GPU BatchNorm')
     args = parser.parse_args()
     return args
 
