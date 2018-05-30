@@ -232,7 +232,13 @@ if __name__ == '__main__':
     # network
     net_name = '_'.join(('ssd', str(args.data_shape), args.network, args.dataset))
     args.save_prefix += net_name
-    net = get_model(net_name, pretrained_base=True)
+    # Synchronized BatchNorm
+    if args.syncbn:
+        from gluoncv.model_zoo.syncbn import BatchNorm
+        args.norm_layer = BatchNorm
+    else:
+        args.norm_layer = mx.gluon.nn.BatchNorm
+    net = get_model(net_name, pretrained_base=True, batch_norm=True, batch_)
     if args.resume.strip():
         net.load_params(args.resume.strip())
     else:
