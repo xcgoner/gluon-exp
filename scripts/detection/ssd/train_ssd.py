@@ -157,7 +157,7 @@ def train(net, train_data, val_data, eval_metric, args):
     if 'sync' in args.kv_store:
         kv = mx.kv.create(args.kv_store)
         kv._set_updater(num_pos_updater)
-        mbox_loss = gcv.loss.SharedSSDMultiBoxLoss(kv_store = kv, kv_store_key = 1)
+        mbox_loss = gcv.loss.SharedSSDMultiBoxLoss(kv_store_type = args.kv_store, kv_store = kv, kv_store_key = 1)
     else:
         mbox_loss = gcv.loss.SSDMultiBoxLoss()
     ce_metric = mx.metric.Loss('CrossEntropy')
@@ -240,13 +240,7 @@ if __name__ == '__main__':
     # network
     net_name = '_'.join(('ssd', str(args.data_shape), args.network, args.dataset))
     args.save_prefix += net_name
-    # Synchronized BatchNorm
-    if args.syncbn:
-        from gluoncv.model_zoo.syncbn import BatchNorm
-        args.norm_layer = BatchNorm
-    else:
-        args.norm_layer = mx.gluon.nn.BatchNorm
-    # net = get_model(net_name, pretrained_base=True, batch_norm=True, batch_norm_type=args.norm_layer)
+
     net = get_model(net_name, pretrained_base=True)
     if args.resume.strip():
         net.load_params(args.resume.strip())
