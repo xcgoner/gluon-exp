@@ -62,8 +62,8 @@ def parse_args():
                              'training time if validation is slow.')
     parser.add_argument('--seed', type=int, default=233,
                         help='Random seed to be fixed.')
-    parser.add_argument('--syncbn', action='store_true', default= False,
-                        help='using Synchronized Cross-GPU BatchNorm')
+    parser.add_argument('--kv-store', type=str, default= 'device',
+                        help='using synchronized loss')
     args = parser.parse_args()
     return args
 
@@ -140,18 +140,26 @@ def validate(net, val_data, ctx, eval_metric):
         eval_metric.update(det_bboxes, det_ids, det_scores, gt_bboxes, gt_ids, gt_difficults)
     return eval_metric.get()
 
+def num_pos_updater(key, input, stored):
+    stored += input
+
 def train(net, train_data, val_data, eval_metric, args):
     """Training pipeline"""
     net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(
         net.collect_params(), 'sgd',
-        {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum})
+        {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum}, kvstore=args.kv_store)
 
     # lr decay policy
     lr_decay = float(args.lr_decay)
     lr_steps = sorted([float(ls) for ls in args.lr_decay_epoch.split(',') if ls.strip()])
 
-    mbox_loss = gcv.loss.SSDMultiBoxLoss()
+    if 'sync' in args.kv_store:
+        kv = mx.kv.create(args.kv_store)
+        kv._set_updater(num_pos_updater)
+        mbox_loss = gcv.loss.SharedSSDMultiBoxLoss(kv_store = kv, kv_store_key = 1)
+    else:
+        mbox_loss = gcv.loss.SSDMultiBoxLoss()
     ce_metric = mx.metric.Loss('CrossEntropy')
     smoothl1_metric = mx.metric.Loss('SmoothL1')
 
@@ -238,7 +246,8 @@ if __name__ == '__main__':
         args.norm_layer = BatchNorm
     else:
         args.norm_layer = mx.gluon.nn.BatchNorm
-    net = get_model(net_name, pretrained_base=True, batch_norm=True, batch_)
+    # net = get_model(net_name, pretrained_base=True, batch_norm=True, batch_norm_type=args.norm_layer)
+    net = get_model(net_name, pretrained_base=True)
     if args.resume.strip():
         net.load_params(args.resume.strip())
     else:
