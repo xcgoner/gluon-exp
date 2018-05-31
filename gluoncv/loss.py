@@ -209,12 +209,14 @@ class SharedSSDMultiBoxLoss(gluon.Block):
             num_pos.append(pos_samples.sum())
         num_pos_all = sum([p.asscalar() for p in num_pos])
         # synchronize across different machines
+        # print('before sync:', num_pos_all)
         if self._distributed:
             num_pos_out = nd.zeros(1, mx.cpu())
             num_pos_in = nd.zeros(1, mx.cpu()) + num_pos_all
             # allreduce only supports pushpull
             self._kv_store.pushpull(self._num_pos_key, num_pos_in, num_pos_out)
             num_pos_all = num_pos_out.asscalar()
+        # print('after sync:', num_pos_all)
         if num_pos_all < 1:
             # no positive samples found, return dummy losses
             return nd.zeros((1,)), nd.zeros((1,)), nd.zeros((1,))
