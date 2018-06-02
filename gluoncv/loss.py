@@ -190,11 +190,17 @@ class SharedSSDMultiBoxLoss(gluon.Block):
         self._distributed = False
         if 'sync' in kv_store_type:
             self._distributed = True
-            # assume that the kvstore is well defined with an accumulative updater
+            self._kv_store_type = kv_store_type
+            # assume that the kvstore is well defined with an accumulative updater/optimizer
             self._kv_store = kv_store
             # TODO: checking whether this arg exists
             self._num_pos_key = kv_store_key
-            self._kv_store.init(self._num_pos_key, nd.zeros(1))
+            if not ('allreduce' in self._kv_store_type):
+                self._kv_store.init(self._num_pos_key, nd.zeros(1))
+                self._kv_store._barrier()
+                num_pos_out = nd.zeros(1, mx.cpu())
+                self._kv_store.pull(self._num_pos_key, out=num_pos_out)
+
 
 
     def forward(self, cls_pred, box_pred, cls_target, box_target):
@@ -209,14 +215,19 @@ class SharedSSDMultiBoxLoss(gluon.Block):
             num_pos.append(pos_samples.sum())
         num_pos_all = sum([p.asscalar() for p in num_pos])
         # synchronize across different machines
-        # print('before sync:', num_pos_all)
+        print('before sync:', num_pos_all)
         if self._distributed:
             num_pos_out = nd.zeros(1, mx.cpu())
             num_pos_in = nd.zeros(1, mx.cpu()) + num_pos_all
             # allreduce only supports pushpull
-            self._kv_store.pushpull(self._num_pos_key, num_pos_in, num_pos_out)
+            if 'allreduce' in self._kv_store_type:
+                self._kv_store.pushpull(self._num_pos_key, num_pos_in, num_pos_out)
+            else:
+                self._kv_store.push(self._num_pos_key, num_pos_in)
+                # self._kv_store._barrier()
+                self._kv_store.pull(self._num_pos_key, out=num_pos_out)
             num_pos_all = num_pos_out.asscalar()
-        # print('after sync:', num_pos_all)
+        print('after sync:', num_pos_all)
         if num_pos_all < 1:
             # no positive samples found, return dummy losses
             return nd.zeros((1,)), nd.zeros((1,)), nd.zeros((1,))

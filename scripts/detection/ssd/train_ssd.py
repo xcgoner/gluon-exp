@@ -140,26 +140,35 @@ def validate(net, val_data, ctx, eval_metric):
         eval_metric.update(det_bboxes, det_ids, det_scores, gt_bboxes, gt_ids, gt_difficults)
     return eval_metric.get()
 
-def num_pos_updater(key, input, stored):
-    stored += input
+# def num_pos_updater(key, input, stored):
+#     stored += input
 
 def train(net, train_data, val_data, eval_metric, args):
     """Training pipeline"""
     net.collect_params().reset_ctx(ctx)
+
+    if 'dist' in args.kv_store:
+        kv = mx.kv.create(args.kv_store)
+    else:
+        kv = args.kv_store
+
+    # assume update_on_kvstore=False
     trainer = gluon.Trainer(
         net.collect_params(), 'sgd',
-        {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum}, kvstore=args.kv_store)
+        {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum}, kvstore=kv)
 
     # lr decay policy
     lr_decay = float(args.lr_decay)
     lr_steps = sorted([float(ls) for ls in args.lr_decay_epoch.split(',') if ls.strip()])
 
     if 'sync' in args.kv_store:
-        kv = mx.kv.create(args.kv_store)
-        kv._set_updater(num_pos_updater)
-        mbox_loss = gcv.loss.SharedSSDMultiBoxLoss(kv_store_type = args.kv_store, kv_store = kv, kv_store_key = 1)
+        # must be careful when setting the key
+        SharedSSDMultiBoxLoss_key = len(net.collect_params().keys())
+        print(SharedSSDMultiBoxLoss_key)
+        mbox_loss = gcv.loss.SharedSSDMultiBoxLoss(kv_store_type = args.kv_store, kv_store = kv, kv_store_key = SharedSSDMultiBoxLoss_key)
     else:
         mbox_loss = gcv.loss.SSDMultiBoxLoss()
+    # mbox_loss = gcv.loss.SSDMultiBoxLoss()
     ce_metric = mx.metric.Loss('CrossEntropy')
     smoothl1_metric = mx.metric.Loss('SmoothL1')
 
