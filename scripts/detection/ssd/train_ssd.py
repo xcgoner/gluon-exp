@@ -164,7 +164,7 @@ def train(net, train_data, val_data, eval_metric, args):
     if 'sync' in args.kv_store:
         # must be careful when setting the key
         SharedSSDMultiBoxLoss_key = len(net.collect_params().keys())
-        print(SharedSSDMultiBoxLoss_key)
+        # print(SharedSSDMultiBoxLoss_key)
         mbox_loss = gcv.loss.SharedSSDMultiBoxLoss(kv_store_type = args.kv_store, kv_store = kv, kv_store_key = SharedSSDMultiBoxLoss_key)
     else:
         mbox_loss = gcv.loss.SSDMultiBoxLoss()

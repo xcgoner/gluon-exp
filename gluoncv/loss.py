@@ -182,7 +182,7 @@ class SharedSSDMultiBoxLoss(gluon.Block):
         The overall loss is computed as :math:`L = loss_{class} + \lambda \times loss_{loc}`.
 
     """
-    def __init__(self, negative_mining_ratio=3, rho=1.0, lambd=1.0, kv_store_type='device', kv_store=None, kv_store_key=1, **kwargs):
+    def __init__(self, negative_mining_ratio=3, rho=1.0, lambd=1.0, kv_store_type='device', kv_store=None, kv_store_key=-1, **kwargs):
         super(SharedSSDMultiBoxLoss, self).__init__(**kwargs)
         self._negative_mining_ratio = max(0, negative_mining_ratio)
         self._rho = rho
@@ -195,9 +195,9 @@ class SharedSSDMultiBoxLoss(gluon.Block):
             self._kv_store = kv_store
             # TODO: checking whether this arg exists
             self._num_pos_key = kv_store_key
-            if not ('allreduce' in self._kv_store_type):
+            if 'allreduce' not in self._kv_store_type:
                 self._kv_store.init(self._num_pos_key, nd.zeros(1))
-                self._kv_store._barrier()
+                # self._kv_store._barrier()
                 num_pos_out = nd.zeros(1, mx.cpu())
                 self._kv_store.pull(self._num_pos_key, out=num_pos_out)
 
@@ -215,7 +215,7 @@ class SharedSSDMultiBoxLoss(gluon.Block):
             num_pos.append(pos_samples.sum())
         num_pos_all = sum([p.asscalar() for p in num_pos])
         # synchronize across different machines
-        print('before sync:', num_pos_all)
+        # print('before sync:', num_pos_all)
         if self._distributed:
             num_pos_out = nd.zeros(1, mx.cpu())
             num_pos_in = nd.zeros(1, mx.cpu()) + num_pos_all
@@ -227,7 +227,7 @@ class SharedSSDMultiBoxLoss(gluon.Block):
                 # self._kv_store._barrier()
                 self._kv_store.pull(self._num_pos_key, out=num_pos_out)
             num_pos_all = num_pos_out.asscalar()
-        print('after sync:', num_pos_all)
+        # print('after sync:', num_pos_all)
         if num_pos_all < 1:
             # no positive samples found, return dummy losses
             return nd.zeros((1,)), nd.zeros((1,)), nd.zeros((1,))

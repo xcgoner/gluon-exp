@@ -116,10 +116,12 @@ class BatchNorm(HybridBlock):
         if autograd.is_training():
             isum, isqu = F.SumSquare(x)
             # reduce sum for E(x) and E(x^2)
+            print(x, isum, isqu)
             idsum = self.xsum.push(isum)
             idsqu = self.xsqu.push(isqu)
             osum = self.xsum.get(F, idsum)
             osqu = self.xsqu.get(F, idsqu)
+            print(isum, isqu)
             assert(len(self.xsum) == len(self.xsqu))
             N = len(self.xsum)*x.shape[0]*x.shape[2]*x.shape[3]
             # calc mean and std
@@ -233,3 +235,4 @@ class _SharedTensor(object):
 
     def __repr__(self):
         return '_SharedTensor'
+
