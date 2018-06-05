@@ -143,14 +143,9 @@ def validate(net, val_data, ctx, eval_metric):
 # def num_pos_updater(key, input, stored):
 #     stored += input
 
-def train(net, train_data, val_data, eval_metric, args):
+def train(net, train_data, val_data, eval_metric, kv, args):
     """Training pipeline"""
     net.collect_params().reset_ctx(ctx)
-
-    if 'dist' in args.kv_store:
-        kv = mx.kv.create(args.kv_store)
-    else:
-        kv = args.kv_store
 
     # assume update_on_kvstore=False
     trainer = gluon.Trainer(
@@ -259,10 +254,19 @@ if __name__ == '__main__':
                 continue
             param.initialize()
 
+    # kv store
+    if 'dist' in args.kv_store:
+        kv = mx.kv.create(args.kv_store)
+        args.batch_size = args.batch_size // kv.num_workers
+    else:
+        kv = args.kv_store
+
+    print("batch_size=", args.batch_size)
+
     # training data
     train_dataset, val_dataset, eval_metric = get_dataset(args.dataset, args)
     train_data, val_data = get_dataloader(
         net, train_dataset, val_dataset, args.data_shape, args.batch_size, args.num_workers)
 
     # training
-    train(net, train_data, val_data, eval_metric, args)
+    train(net, train_data, val_data, eval_metric, kv, args)
