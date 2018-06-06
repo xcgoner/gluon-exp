@@ -64,6 +64,8 @@ def parse_args():
                         help='Random seed to be fixed.')
     parser.add_argument('--kv-store', type=str, default= 'device',
                         help='using synchronized loss')
+    parser.add_argument('--num-samples', type=int, default=15000,
+                        help='number of samples to process in each epoch')
     args = parser.parse_args()
     return args
 
@@ -180,18 +182,17 @@ def train(net, train_data, val_data, eval_metric, kv, args):
     logger.info(args)
     logger.info('Start training from [Epoch {}]'.format(args.start_epoch))
     best_map = [0]
-    for epoch in range(args.start_epoch, args.epochs):
-        while lr_steps and epoch >= lr_steps[0]:
-            new_lr = trainer.learning_rate * lr_decay
-            lr_steps.pop(0)
-            trainer.set_learning_rate(new_lr)
-            logger.info("[Epoch {}] Set learning rate to {}".format(epoch, new_lr))
-        ce_metric.reset()
-        smoothl1_metric.reset()
-        tic = time.time()
-        btic = time.time()
-        net.hybridize()
+    num_iters_per_epoch = args.num_samples // args.batch_size
+    epoch = args.start_epoch
+    iter_counter = 0
+    while True:
         for i, batch in enumerate(train_data):
+            if iter_counter == 0:
+                ce_metric.reset()
+                smoothl1_metric.reset()
+                tic = time.time()
+                btic = time.time()
+                net.hybridize()
             batch_size = batch[0].shape[0]
             if 'sync' in args.kv_store:
                 batch_size *= kv.num_workers
@@ -213,26 +214,38 @@ def train(net, train_data, val_data, eval_metric, kv, args):
             trainer.step(1)
             ce_metric.update(0, [l * batch_size for l in cls_loss])
             smoothl1_metric.update(0, [l * batch_size for l in box_loss])
-            if args.log_interval and not (i + 1) % args.log_interval:
+            if args.log_interval and not (iter_counter + 1) % args.log_interval:
                 name1, loss1 = ce_metric.get()
                 name2, loss2 = smoothl1_metric.get()
                 logger.info('[Epoch {}][Batch {}], Speed: {:.3f} samples/sec, {}={:.3f}, {}={:.3f}'.format(
-                    epoch, i, batch_size/(time.time()-btic), name1, loss1, name2, loss2))
+                    epoch, iter_counter, batch_size/(time.time()-btic), name1, loss1, name2, loss2))
             btic = time.time()
-
-        name1, loss1 = ce_metric.get()
-        name2, loss2 = smoothl1_metric.get()
-        logger.info('[Epoch {}] Training cost: {:.3f}, {}={:.3f}, {}={:.3f}'.format(
-            epoch, (time.time()-tic), name1, loss1, name2, loss2))
-        if not (epoch + 1) % args.val_interval:
-            # consider reduce the frequency of validation to save time
-            map_name, mean_ap = validate(net, val_data, ctx, eval_metric)
-            val_msg = '\n'.join(['{}={}'.format(k, v) for k, v in zip(map_name, mean_ap)])
-            logger.info('[Epoch {}] Validation: \n{}'.format(epoch, val_msg))
-            current_map = float(mean_ap[-1])
-        else:
-            current_map = 0.
-        save_params(net, best_map, current_map, epoch, args.save_interval, args.save_prefix)
+            iter_counter += 1
+            if iter_counter == num_iters_per_epoch:
+                iter_counter = 0
+                name1, loss1 = ce_metric.get()
+                name2, loss2 = smoothl1_metric.get()
+                logger.info('[Epoch {}] Training cost: {:.3f}, {}={:.3f}, {}={:.3f}'.format(
+                    epoch, (time.time()-tic), name1, loss1, name2, loss2))
+                if not (epoch + 1) % args.val_interval:
+                    # consider reduce the frequency of validation to save time
+                    map_name, mean_ap = validate(net, val_data, ctx, eval_metric)
+                    val_msg = '\n'.join(['{}={}'.format(k, v) for k, v in zip(map_name, mean_ap)])
+                    logger.info('[Epoch {}] Validation: \n{}'.format(epoch, val_msg))
+                    current_map = float(mean_ap[-1])
+                else:
+                    current_map = 0.
+                save_params(net, best_map, current_map, epoch, args.save_interval, args.save_prefix)
+                while lr_steps and epoch >= lr_steps[0]:
+                    new_lr = trainer.learning_rate * lr_decay
+                    lr_steps.pop(0)
+                    trainer.set_learning_rate(new_lr)
+                    logger.info("[Epoch {}] Set learning rate to {}".format(epoch, new_lr))
+                epoch += 1
+                if epoch > args.epochs:
+                    break
+        if epoch > args.epochs:
+            break
 
 if __name__ == '__main__':
     args = parse_args()
@@ -260,8 +273,10 @@ if __name__ == '__main__':
     if 'dist' in args.kv_store:
         kv = mx.kv.create(args.kv_store)
         dataloader_batch_size = args.batch_size // kv.num_workers
+        gutils.random.seed(args.seed + kv.rank)
     else:
         kv = args.kv_store
+        dataloader_batch_size = args.batch_size
 
     print("batch_size=", args.batch_size)
 
